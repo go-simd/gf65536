@@ -24,7 +24,7 @@
 // proves it bit-exact.
 //
 // Signature: galMulNEON(dst, src []byte, tbl *[128]byte, n int), n = number of
-// whole 32-byte blocks. Run: go run galois_arm64_gen.go
+// whole 32-byte blocks. Run: cd gen/arm64 && go run .
 package main
 
 import (

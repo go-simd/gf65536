@@ -30,7 +30,7 @@
 // (QEMU_CPU=la464). No LASX is used.
 //
 // Signature: galMulLSX(dst, src []byte, tbl *[128]byte, n int), n = number of whole
-// 32-byte blocks. Run: go run galois_loong64_gen.go
+// 32-byte blocks. Run: cd gen/loong64 && go run .
 package main
 
 import (

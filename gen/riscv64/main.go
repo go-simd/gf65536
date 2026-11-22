@@ -31,7 +31,7 @@
 // oracle proves it bit-exact under QEMU (rv64,v=true,vlen=256).
 //
 // Signature: galMulRVV(dst, src []byte, tbl *[128]byte, n int), n = number of whole
-// 32-byte blocks. Run: go run galois_riscv64_gen.go
+// 32-byte blocks. Run: cd gen/riscv64 && go run .
 package main
 
 import (

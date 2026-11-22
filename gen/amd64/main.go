@@ -28,7 +28,7 @@
 // AVX2/VPSHUFB over 64-byte blocks (with cross-lane deinterleave) is a follow-up.
 //
 // Signature: galMulSSSE3(dst, src []byte, tbl *[128]byte, n int), n = number of
-// whole 32-byte blocks. Run: go run galois_amd64_gen.go
+// whole 32-byte blocks. Run: cd gen/amd64 && go run .
 package main
 
 import (
