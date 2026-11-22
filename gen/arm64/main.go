@@ -51,10 +51,10 @@ func sig() abi.Signature {
 func lookup(b *arm64.Builder, table, index, acc string, first bool) {
 	if first {
 		b.Raw("VTBL %s, [%s], %s", index, table, acc)
-		return
+	} else {
+		b.Raw("VTBL %s, [%s], V6.B16", index, table).
+			Raw("VEOR V6.B16, %s, %s", acc, acc)
 	}
-	b.Raw("VTBL %s, [%s], V6.B16", index, table).
-		Raw("VEOR V6.B16, %s, %s", acc, acc)
 }
 
 func gen(f *emit.File, name string, muladd bool) {
