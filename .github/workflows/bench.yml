@@ -1,0 +1,21 @@
+name: bench
+# Dispatch-only: interleaved region benchmarks of every tier on a hosted runner
+# (the maintainer's machine is arm64, so amd64 numbers come from here). Numbers
+# on shared runners are noisy: read the ratios between tiers within one run.
+on:
+  workflow_dispatch:
+jobs:
+  bench:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, arch: amd64 }
+          - { os: ubuntu-24.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: '1.27.3' }
+      - run: lscpu
+      - run: go test -run '^$' -bench . -benchtime 200x -count 6 ./...
