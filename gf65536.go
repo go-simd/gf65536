@@ -17,6 +17,8 @@
 // scalar code.
 package gf65536
 
+import "crypto/subtle"
+
 // Poly is the reduction polynomial x^16 + x^12 + x^3 + x + 1.
 const Poly = 0x1100B
 
@@ -189,9 +191,7 @@ func mulAddSlice(dst, src []byte, c uint16, build func(uint16, *[128]byte)) {
 	case 0:
 		return
 	case 1:
-		for i := range src {
-			dst[i] ^= src[i]
-		}
+		subtle.XORBytes(dst, dst, src) // the standard library's vectorised XOR
 		return
 	}
 	var tbl [128]byte
