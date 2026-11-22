@@ -113,11 +113,47 @@ var (
 // "avx2", "ssse3", "neon", "lsx", "vsx", "vx", "rvv" or "scalar".
 func Tier() string { return cur.name }
 
+// buildSplitTablesLE fills tbl for the constant c for regions of LITTLE-endian
+// words (the first byte is the LOW byte, as in PAR2 recovery slices). The
+// kernels only ever treat the first byte of a pair as the "high" input and
+// output plane and the second as the "low" one, so the same kernels serve both
+// byte orders once the tables are permuted: the table indexed by the nibbles of
+// the second byte (kernel T0 and T1) holds the products of word bits 8..11 and
+// 12..15, the one indexed by the first byte (T2 and T3) bits 0..3 and 4..7, and
+// the two output bytes swap places. No kernel changes, no byte-swap pass.
+func buildSplitTablesLE(c uint16, tbl *[128]byte) {
+	var be [128]byte
+	buildSplitTables(c, &be)
+	// kernel table k reads word nibble src[k] (see product).
+	src := [4]int{2, 3, 0, 1}
+	for k := 0; k < 4; k++ {
+		for n := 0; n < 16; n++ {
+			tbl[32*k+n] = be[32*src[k]+16+n] // second output byte = high byte
+			tbl[32*k+16+n] = be[32*src[k]+n] // first output byte = low byte
+		}
+	}
+}
+
 // MulSlice sets dst = src*c for every 16-bit big-endian word of src. dst and src
 // must be the same slice or disjoint; len(dst) must be at least len(src). An odd
 // trailing byte of src is ignored (dst is left untouched there). It panics if
 // dst is shorter than src.
-func MulSlice(dst, src []byte, c uint16) {
+func MulSlice(dst, src []byte, c uint16) { mulSlice(dst, src, c, buildSplitTables) }
+
+// MulAddSlice sets dst ^= src*c for every 16-bit big-endian word of src, with
+// the same preconditions as MulSlice.
+func MulAddSlice(dst, src []byte, c uint16) { mulAddSlice(dst, src, c, buildSplitTables) }
+
+// MulSliceLE is MulSlice for little-endian words: the first byte of each pair
+// is the low byte, which is the layout of PAR2 recovery slices (and of every
+// little-endian host's []uint16 memory). It runs the same kernels at the same
+// speed as MulSlice and is independent of the host's byte order.
+func MulSliceLE(dst, src []byte, c uint16) { mulSlice(dst, src, c, buildSplitTablesLE) }
+
+// MulAddSliceLE is MulAddSlice for little-endian words; see MulSliceLE.
+func MulAddSliceLE(dst, src []byte, c uint16) { mulAddSlice(dst, src, c, buildSplitTablesLE) }
+
+func mulSlice(dst, src []byte, c uint16, build func(uint16, *[128]byte)) {
 	n := len(src) &^ 1
 	if len(dst) < n {
 		panic("gf65536: dst shorter than src")
@@ -132,14 +168,12 @@ func MulSlice(dst, src []byte, c uint16) {
 		return
 	}
 	var tbl [128]byte
-	buildSplitTables(c, &tbl)
+	build(c, &tbl)
 	k := cur.mul(dst, src, &tbl)
 	mulTail(dst[k:], src[k:], &tbl)
 }
 
-// MulAddSlice sets dst ^= src*c for every 16-bit big-endian word of src, with
-// the same preconditions as MulSlice.
-func MulAddSlice(dst, src []byte, c uint16) {
+func mulAddSlice(dst, src []byte, c uint16, build func(uint16, *[128]byte)) {
 	n := len(src) &^ 1
 	if len(dst) < n {
 		panic("gf65536: dst shorter than src")
@@ -155,7 +189,7 @@ func MulAddSlice(dst, src []byte, c uint16) {
 		return
 	}
 	var tbl [128]byte
-	buildSplitTables(c, &tbl)
+	build(c, &tbl)
 	k := cur.mulAdd(dst, src, &tbl)
 	mulAddTail(dst[k:], src[k:], &tbl)
 }
