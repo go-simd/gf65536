@@ -46,6 +46,13 @@ func Mul(a, b uint16) uint16 {
 // low and high byte of (n<<4k)*c. The products are linear in the bits of n, so
 // they come from the 16 values c*x^i by XOR instead of 64 multiplies.
 func buildSplitTables(c uint16, tbl *[128]byte) {
+	fillTables(c, tbl, [4]int{0, 1, 2, 3}, false)
+}
+
+// fillTables builds the 128-byte table of c. Kernel table k holds the products
+// of the word nibble nib[k]; with swap the two bytes of every product trade
+// places (first output byte = low byte).
+func fillTables(c uint16, tbl *[128]byte, nib [4]int, swap bool) {
 	var basis [16]uint16
 	b := uint32(c)
 	for i := range basis {
@@ -55,16 +62,22 @@ func buildSplitTables(c uint16, tbl *[128]byte) {
 			b ^= Poly
 		}
 	}
+	lo, hi := 0, 16
+	if swap {
+		lo, hi = 16, 0
+	}
 	for k := 0; k < 4; k++ {
-		for n := 0; n < 16; n++ {
-			var p uint16
-			for j := 0; j < 4; j++ {
-				if n>>j&1 != 0 {
-					p ^= basis[4*k+j]
-				}
+		// t[n] = (n << 4*nib[k]) * c, by doubling: t[n|2^j] = t[n] ^ basis.
+		var t [16]uint16
+		for j := 0; j < 4; j++ {
+			v := basis[4*nib[k]+j]
+			for n := 0; n < 1<<j; n++ {
+				t[n|1<<j] = t[n] ^ v
 			}
-			tbl[32*k+n] = byte(p)
-			tbl[32*k+16+n] = byte(p >> 8)
+		}
+		for n, p := range t {
+			tbl[32*k+lo+n] = byte(p)
+			tbl[32*k+hi+n] = byte(p >> 8)
 		}
 	}
 }
@@ -122,16 +135,9 @@ func Tier() string { return cur.name }
 // 12..15, the one indexed by the first byte (T2 and T3) bits 0..3 and 4..7, and
 // the two output bytes swap places. No kernel changes, no byte-swap pass.
 func buildSplitTablesLE(c uint16, tbl *[128]byte) {
-	var be [128]byte
-	buildSplitTables(c, &be)
-	// kernel table k reads word nibble src[k] (see product).
-	src := [4]int{2, 3, 0, 1}
-	for k := 0; k < 4; k++ {
-		for n := 0; n < 16; n++ {
-			tbl[32*k+n] = be[32*src[k]+16+n] // second output byte = high byte
-			tbl[32*k+16+n] = be[32*src[k]+n] // first output byte = low byte
-		}
-	}
+	// Kernel table k reads word nibble 2, 3, 0, 1 (see product); the second
+	// output byte is the high byte, the first the low byte.
+	fillTables(c, tbl, [4]int{2, 3, 0, 1}, true)
 }
 
 // MulSlice sets dst = src*c for every 16-bit big-endian word of src. dst and src
