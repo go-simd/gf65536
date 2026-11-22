@@ -30,7 +30,7 @@
 // oracle proves it bit-exact under emulation.
 //
 // Signature: galMulVX(dst, src []byte, tbl *[128]byte, n int), n = number of whole
-// 32-byte blocks. Run: go run galois_s390x_gen.go
+// 32-byte blocks. Run: cd gen/s390x && go run .
 package main
 
 import (

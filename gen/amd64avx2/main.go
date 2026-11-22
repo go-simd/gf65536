@@ -20,7 +20,7 @@
 // Y15 the 0x0F mask; Y8..Y13 working.
 //
 // Signature: galMulAVX2(dst, src []byte, tbl *[128]byte, n int), n = number of
-// whole 64-byte blocks. Run: cd gen && go run galois_amd64_avx2_gen.go
+// whole 64-byte blocks. Run: cd gen/amd64avx2 && go run .
 package main
 
 import (

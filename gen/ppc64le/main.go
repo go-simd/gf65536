@@ -34,7 +34,7 @@
 // lane enforces that and the differential oracle proves it bit-exact under QEMU.
 //
 // Signature: galMulVSX(dst, src []byte, tbl *[128]byte, n int), n = number of whole
-// 32-byte blocks. Run: go run galois_ppc64le_gen.go
+// 32-byte blocks. Run: cd gen/ppc64le && go run .
 package main
 
 import (
