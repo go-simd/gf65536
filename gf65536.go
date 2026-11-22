@@ -17,6 +17,8 @@
 // scalar code.
 package gf65536
 
+import "crypto/subtle"
+
 // Poly is the reduction polynomial x^16 + x^12 + x^3 + x + 1.
 const Poly = 0x1100B
 
@@ -46,6 +48,13 @@ func Mul(a, b uint16) uint16 {
 // low and high byte of (n<<4k)*c. The products are linear in the bits of n, so
 // they come from the 16 values c*x^i by XOR instead of 64 multiplies.
 func buildSplitTables(c uint16, tbl *[128]byte) {
+	fillTables(c, tbl, [4]int{0, 1, 2, 3}, false)
+}
+
+// fillTables builds the 128-byte table of c. Kernel table k holds the products
+// of the word nibble nib[k]; with swap the two bytes of every product trade
+// places (first output byte = low byte).
+func fillTables(c uint16, tbl *[128]byte, nib [4]int, swap bool) {
 	var basis [16]uint16
 	b := uint32(c)
 	for i := range basis {
@@ -55,16 +64,22 @@ func buildSplitTables(c uint16, tbl *[128]byte) {
 			b ^= Poly
 		}
 	}
+	lo, hi := 0, 16
+	if swap {
+		lo, hi = 16, 0
+	}
 	for k := 0; k < 4; k++ {
-		for n := 0; n < 16; n++ {
-			var p uint16
-			for j := 0; j < 4; j++ {
-				if n>>j&1 != 0 {
-					p ^= basis[4*k+j]
-				}
+		// t[n] = (n << 4*nib[k]) * c, by doubling: t[n|2^j] = t[n] ^ basis.
+		var t [16]uint16
+		for j := 0; j < 4; j++ {
+			v := basis[4*nib[k]+j]
+			for n := 0; n < 1<<j; n++ {
+				t[n|1<<j] = t[n] ^ v
 			}
-			tbl[32*k+n] = byte(p)
-			tbl[32*k+16+n] = byte(p >> 8)
+		}
+		for n, p := range t {
+			tbl[32*k+lo+n] = byte(p)
+			tbl[32*k+hi+n] = byte(p >> 8)
 		}
 	}
 }
@@ -113,11 +128,40 @@ var (
 // "avx2", "ssse3", "neon", "lsx", "vsx", "vx", "rvv" or "scalar".
 func Tier() string { return cur.name }
 
+// buildSplitTablesLE fills tbl for the constant c for regions of LITTLE-endian
+// words (the first byte is the LOW byte, as in PAR2 recovery slices). The
+// kernels only ever treat the first byte of a pair as the "high" input and
+// output plane and the second as the "low" one, so the same kernels serve both
+// byte orders once the tables are permuted: the table indexed by the nibbles of
+// the second byte (kernel T0 and T1) holds the products of word bits 8..11 and
+// 12..15, the one indexed by the first byte (T2 and T3) bits 0..3 and 4..7, and
+// the two output bytes swap places. No kernel changes, no byte-swap pass.
+func buildSplitTablesLE(c uint16, tbl *[128]byte) {
+	// Kernel table k reads word nibble 2, 3, 0, 1 (see product); the second
+	// output byte is the high byte, the first the low byte.
+	fillTables(c, tbl, [4]int{2, 3, 0, 1}, true)
+}
+
 // MulSlice sets dst = src*c for every 16-bit big-endian word of src. dst and src
 // must be the same slice or disjoint; len(dst) must be at least len(src). An odd
 // trailing byte of src is ignored (dst is left untouched there). It panics if
 // dst is shorter than src.
-func MulSlice(dst, src []byte, c uint16) {
+func MulSlice(dst, src []byte, c uint16) { mulSlice(dst, src, c, buildSplitTables) }
+
+// MulAddSlice sets dst ^= src*c for every 16-bit big-endian word of src, with
+// the same preconditions as MulSlice.
+func MulAddSlice(dst, src []byte, c uint16) { mulAddSlice(dst, src, c, buildSplitTables) }
+
+// MulSliceLE is MulSlice for little-endian words: the first byte of each pair
+// is the low byte, which is the layout of PAR2 recovery slices (and of every
+// little-endian host's []uint16 memory). It runs the same kernels at the same
+// speed as MulSlice and is independent of the host's byte order.
+func MulSliceLE(dst, src []byte, c uint16) { mulSlice(dst, src, c, buildSplitTablesLE) }
+
+// MulAddSliceLE is MulAddSlice for little-endian words; see MulSliceLE.
+func MulAddSliceLE(dst, src []byte, c uint16) { mulAddSlice(dst, src, c, buildSplitTablesLE) }
+
+func mulSlice(dst, src []byte, c uint16, build func(uint16, *[128]byte)) {
 	n := len(src) &^ 1
 	if len(dst) < n {
 		panic("gf65536: dst shorter than src")
@@ -132,14 +176,12 @@ func MulSlice(dst, src []byte, c uint16) {
 		return
 	}
 	var tbl [128]byte
-	buildSplitTables(c, &tbl)
+	build(c, &tbl)
 	k := cur.mul(dst, src, &tbl)
 	mulTail(dst[k:], src[k:], &tbl)
 }
 
-// MulAddSlice sets dst ^= src*c for every 16-bit big-endian word of src, with
-// the same preconditions as MulSlice.
-func MulAddSlice(dst, src []byte, c uint16) {
+func mulAddSlice(dst, src []byte, c uint16, build func(uint16, *[128]byte)) {
 	n := len(src) &^ 1
 	if len(dst) < n {
 		panic("gf65536: dst shorter than src")
@@ -149,13 +191,11 @@ func MulAddSlice(dst, src []byte, c uint16) {
 	case 0:
 		return
 	case 1:
-		for i := range src {
-			dst[i] ^= src[i]
-		}
+		subtle.XORBytes(dst, dst, src) // the standard library's vectorised XOR
 		return
 	}
 	var tbl [128]byte
-	buildSplitTables(c, &tbl)
+	build(c, &tbl)
 	k := cur.mulAdd(dst, src, &tbl)
 	mulAddTail(dst[k:], src[k:], &tbl)
 }

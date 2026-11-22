@@ -8,13 +8,18 @@ import "github.com/go-simd/gf65536"
 
 gf65536.MulSlice(dst, src, c)    // dst  = src * c
 gf65536.MulAddSlice(dst, src, c) // dst ^= src * c
+
+gf65536.MulSliceLE(dst, src, c)    // same, little-endian words (PAR2)
+gf65536.MulAddSliceLE(dst, src, c)
 ```
 
 - Field: GF(2)[x]/(x^16 + x^12 + x^3 + x + 1), polynomial `0x1100B`, generator 2:
   the field of PAR2 and of [go-erasure/reedsolomon](https://github.com/go-erasure/reedsolomon).
 - A region is a byte slice read as **big-endian** `uint16` words (first byte is
-  the high byte), the layout reedsolomon stores shards in. A little-endian
-  variant (PAR2 files store words little-endian) is not provided yet.
+  the high byte). The `...LE` entry points read **little-endian** words (first
+  byte is the low byte), the layout of PAR2 recovery slices. They run the same
+  kernels at the same speed (only the 128-byte table is permuted) and do not
+  depend on the host's byte order.
 - `dst` and `src` must be the same slice or disjoint, `len(dst) >= len(src)`
   (otherwise it panics); an odd trailing byte of `src` is ignored.
 - Results are exact: every tier is tested against a table-free shift-and-reduce

@@ -25,6 +25,22 @@ func refMulAdd(dst, src []byte, c uint16) {
 	}
 }
 
+// refMulLE and refMulAddLE are the same oracle for little-endian words.
+func refMulLE(dst, src []byte, c uint16) {
+	for w := 0; w+1 < len(src); w += 2 {
+		p := Mul(c, uint16(src[w+1])<<8|uint16(src[w]))
+		dst[w], dst[w+1] = byte(p), byte(p>>8)
+	}
+}
+
+func refMulAddLE(dst, src []byte, c uint16) {
+	for w := 0; w+1 < len(src); w += 2 {
+		p := Mul(c, uint16(src[w+1])<<8|uint16(src[w]))
+		dst[w] ^= byte(p)
+		dst[w+1] ^= byte(p >> 8)
+	}
+}
+
 func allTiers() []tier { return tiers }
 
 // withTier makes ti the implementation in use until the test ends.
@@ -120,6 +136,46 @@ func check(t *testing.T, dst, src []byte, c uint16) {
 	if !bytes.Equal(got, want) {
 		t.Fatalf("MulSlice len=%d c=%#x differs from the reference", len(src), c)
 	}
+	got = append(got[:0], dst...)
+	want = append(want[:0], dst...)
+	MulAddSliceLE(got, src, c)
+	refMulAddLE(want, src, c)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("MulAddSliceLE len=%d c=%#x differs from the reference", len(src), c)
+	}
+	MulSliceLE(got, src, c)
+	refMulLE(want, src, c)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("MulSliceLE len=%d c=%#x differs from the reference", len(src), c)
+	}
+}
+
+// A little-endian region is a big-endian one with every word byte-swapped, so
+// the LE entry points must agree with MulSlice around two swaps.
+func TestLEIsSwappedBE(t *testing.T) {
+	eachTier(t, func(t *testing.T) {
+		r := rand.New(rand.NewSource(9))
+		swap := func(b []byte) []byte {
+			o := append([]byte(nil), b...)
+			for i := 0; i+1 < len(o); i += 2 {
+				o[i], o[i+1] = o[i+1], o[i]
+			}
+			return o
+		}
+		for _, n := range []int{0, 2, 30, 32, 64, 66, 130, 4096} {
+			src := make([]byte, n)
+			r.Read(src)
+			for _, c := range coefficients() {
+				want := swap(src)
+				MulSlice(want, want, c)
+				got := make([]byte, n)
+				MulSliceLE(got, src, c)
+				if !bytes.Equal(got, swap(want)) {
+					t.Fatalf("n=%d c=%#x: MulSliceLE != swap(MulSlice(swap))", n, c)
+				}
+			}
+		}
+	})
 }
 
 // Lengths 0..1000 (every block boundary and tail), sampled and edge constants.
@@ -248,6 +304,28 @@ func BenchmarkMulAdd(b *testing.B) {
 				b.ResetTimer()
 				for i := 0; i < b.N; i++ {
 					MulAddSlice(dst, src, 0x9A3F)
+				}
+			})
+		}
+	}
+}
+
+// BenchmarkMulAddLE is BenchmarkMulAdd for little-endian words: the LE entry
+// points run the same kernels, so the throughput must match.
+func BenchmarkMulAddLE(b *testing.B) {
+	for _, ti := range allTiers() {
+		for _, size := range []int{1 << 10, 1 << 16, 1 << 20} {
+			b.Run(fmt.Sprintf("%s/%d", ti.name, size), func(b *testing.B) {
+				old := cur
+				cur = ti
+				defer func() { cur = old }()
+				src := make([]byte, size)
+				rand.New(rand.NewSource(3)).Read(src)
+				dst := make([]byte, size)
+				b.SetBytes(int64(size))
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					MulAddSliceLE(dst, src, 0x9A3F)
 				}
 			})
 		}
